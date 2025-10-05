@@ -1,6 +1,7 @@
-from typing import Any, Iterator, List, Tuple, Union, Optional
+from collections.abc import Iterator
+from typing import Any
 
-Token = Union[str, int]  # str for dict keys, int for list indices
+Token = str | int
 
 
 def _escape_key_for_brackets(key: str) -> str:
@@ -39,8 +40,8 @@ def iter_json_paths(
     include_containers: bool = False,
     include_values: bool = False,
     sort_keys: bool = False,
-    max_depth: Optional[int] = None,
-) -> Iterator[Union[str, Tuple[str, Any]]]:
+    max_depth: int | None = None,
+) -> Iterator[tuple[str, Any]]:
     """
     Depth-first traversal that yields all JSONPath-like paths in `obj`.
     By default, yields leaf paths only; see flags to tweak behavior.
@@ -66,7 +67,7 @@ def iter_json_paths(
 
     def yield_item(path: str, value: Any):
         if include_values:
-            return (path, value)
+            return path, value
         return path
 
     def rec(current: Any, path: str, depth: int):
@@ -94,7 +95,7 @@ def iter_json_paths(
             items = current.items()
             if sort_keys:
                 # sort by stringified key for deterministic ordering
-                items = sorted(items, key=lambda kv: str(kv[0]))
+                items = sorted(items, key=lambda kv: str(kv[0]))  # type: ignore[assignment]
 
             for k, v in items:
                 # JSON keys are strings; if not, coerce and quote with brackets
@@ -135,13 +136,12 @@ def iter_json_paths(
                 else:
                     yield yield_item(child_path, v)
 
+        # Scalar leaf or unsupported container type (tuple/set/etc. treated as leaf)
+        elif path or include_root:
+            yield yield_item(path or "$", current)
         else:
-            # Scalar leaf or unsupported container type (tuple/set/etc. treated as leaf)
-            if path or include_root:
-                yield yield_item(path or "$", current)
-            else:
-                # Edge case: scalar root without '$'
-                yield yield_item("", current)
+            # Edge case: scalar root without '$'
+            yield yield_item("", current)
 
     # Optionally include the root itself
     if include_root and include_containers and not leaves_only:
@@ -157,8 +157,8 @@ def list_json_paths(
     leaves_only: bool = True,
     include_containers: bool = False,
     sort_keys: bool = False,
-    max_depth: Optional[int] = None,
-) -> List[str]:
+    max_depth: int | None = None,
+) -> list[str | tuple[str, Any]]:
     """
     Convenience wrapper that returns only path strings.
     """
@@ -182,9 +182,9 @@ def paths_with_values(
     leaves_only: bool = True,
     include_containers: bool = False,
     sort_keys: bool = False,
-    max_depth: Optional[int] = None,
+    max_depth: int | None = None,
     exclude_none: bool = False,
-) -> List[Tuple[str, Any]]:
+) -> list[tuple[str, Any]]:
     """
     Return a list of (path, value) pairs for `obj` using the same JSONPath-like syntax.
     Set `exclude_none=True` to drop entries where value is None.
@@ -210,7 +210,7 @@ def path_value_map(
     leaves_only: bool = True,
     include_containers: bool = False,
     sort_keys: bool = False,
-    max_depth: Optional[int] = None,
+    max_depth: int | None = None,
     exclude_none: bool = False,
 ) -> dict[str, Any]:
     """
@@ -225,4 +225,4 @@ def path_value_map(
         max_depth=max_depth,
         exclude_none=exclude_none,
     )
-    return {p: v for p, v in pairs}
+    return dict(pairs)

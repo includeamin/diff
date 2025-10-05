@@ -1,17 +1,16 @@
 import inspect
+import typing
+
 import pytest
 
-from diff import diff, patch, Operation
-
-
-# --- Helpers ---------------------------------------------------------------
+from diff import Operation, diff, patch
 
 
 def _op_has_field(op_obj, name: str) -> bool:
     return hasattr(op_obj, name)
 
 
-def _op_get(op_obj, *names):
+def _op_get(op_obj, *names) -> typing.Any:
     """Get the first existing attribute among names; raise if none exist."""
     for n in names:
         if hasattr(op_obj, n):
@@ -33,7 +32,7 @@ def _mk_expected_operation(**kwargs):
 
 
 @pytest.mark.parametrize(
-    "old,new,expected_delta",
+    ("old", "new", "expected_delta"),
     [
         (
             {"name": "Amin"},
@@ -75,7 +74,7 @@ def test_diff_no_changes_is_empty():
 
 
 def test_added_key_expected_op_and_patch_roundtrip():
-    old = {}
+    old: dict[str, typing.Any] = {}
     new = {"age": 30}
     ops = diff(new=new, old=old)
 
@@ -91,7 +90,7 @@ def test_added_key_expected_op_and_patch_roundtrip():
 
 def test_deleted_key_expected_op_and_patch_roundtrip():
     old = {"name": "Amin"}
-    new = {}
+    new: dict[str, typing.Any] = {}
     ops = diff(new=new, old=old)
 
     # At least one 'deleted' operation from $.name (old_value/value semantics)
@@ -107,7 +106,7 @@ def test_deleted_key_expected_op_and_patch_roundtrip():
 
 
 @pytest.mark.parametrize(
-    "old,new",
+    ("old", "new"),
     [
         # Modify primitive and add nested dict
         ({"a": 1}, {"a": 2, "b": {"c": "x"}}),
@@ -154,7 +153,7 @@ def test_none_handling_as_value_vs_absence():
 
     # Removing a key entirely should be a 'deleted'
     old2 = {"y": None}
-    new2 = {}
+    new2: dict[str, typing.Any] = {}
     ops2 = diff(new=new2, old=old2)
     assert any(o.op == "deleted" and o.path == "$.y" for o in ops2)
     assert patch(base=old2, operations=ops2) == new2
@@ -183,9 +182,9 @@ def test_multiple_changes_in_one_structure():
     }
     seen = {o.path: o.op for o in ops if o.path in expect_paths}
     for p, expected_op in expect_paths.items():
-        assert seen.get(p) == expected_op, (
-            f"Expected {expected_op} at {p}, got {seen.get(p)}"
-        )
+        assert (
+            seen.get(p) == expected_op
+        ), f"Expected {expected_op} at {p}, got {seen.get(p)}"
 
     # Roundtrip must work
     assert patch(base=old, operations=ops) == new

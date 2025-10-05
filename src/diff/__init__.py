@@ -1,5 +1,5 @@
 from diff.diff import diff
-from diff.patch import patch
 from diff.operation import Operation
+from diff.patch import patch
 
-__all__ = ["diff", "patch", "Operation"]
+__all__ = ["Operation", "diff", "patch"]

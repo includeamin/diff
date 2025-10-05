@@ -1,18 +1,17 @@
 import copy
 import typing
-from typing import Any, List, Union
+from typing import Any
 
 from diff.diff import Operation
-from typing import Any, List, Tuple, Union, Optional
 
-Token = Union[str, int]  # str for dict keys, int for list indices
+Token = str | int  # str for dict keys, int for list indices
 
 
 class JsonPathError(ValueError):
     pass
 
 
-def _tokenize_json_path(path: str) -> List[Token]:
+def _tokenize_json_path(path: str) -> list[Token]:
     """
     Tokenize a JSONPath-like string into a list of tokens.
     - Dict keys -> strings
@@ -30,7 +29,7 @@ def _tokenize_json_path(path: str) -> List[Token]:
 
     i = 0
     n = len(path)
-    tokens: List[Token] = []
+    tokens: list[Token] = []
 
     # Skip optional leading '$' and optional following '.'
     if i < n and path[i] == "$":
@@ -38,7 +37,7 @@ def _tokenize_json_path(path: str) -> List[Token]:
         if i < n and path[i] == ".":
             i += 1
 
-    def read_simple_key(start: int) -> (str, int):
+    def read_simple_key(start: int) -> tuple[str, int]:
         j = start
         while j < n and path[j] not in ".[":
             j += 1
@@ -46,7 +45,7 @@ def _tokenize_json_path(path: str) -> List[Token]:
             raise JsonPathError(f"Expected key at position {start} in '{path}'")
         return path[start:j], j
 
-    def read_bracket_key_or_index(start: int) -> (Token, int):
+    def read_bracket_key_or_index(start: int) -> tuple[Token, int]:
         # start at '[', return (token, new_index_after_'])
         j = start + 1
         if j >= n:
@@ -136,9 +135,9 @@ def set_by_json_path(
 
     # We'll walk down, creating as needed.
     current = doc
-    parents: List[
-        tuple[Any, Token]
-    ] = []  # (container, token used to access) if you later want force-replace
+    parents: list[tuple[Any, Token]] = (
+        []
+    )  # (container, token used to access) if you later want force-replace
     for idx, tok in enumerate(tokens):
         last = idx == len(tokens) - 1
         next_tok = None if last else tokens[idx + 1]
@@ -251,135 +250,6 @@ def _is_empty_container(obj: Any) -> bool:
     )
 
 
-def delete_by_json_path(
-    doc: Any,
-    path: str,
-    *,
-    missing_ok: bool = False,
-    remove_from_list: bool = False,
-    prune_empty: bool = False,
-) -> Any:
-    """
-    Delete the value at `path` from `doc` following the same JSONPath-like syntax used by set_by_json_path.
-    Mutates `doc` in place and returns it.
-
-    Behavior:
-    - Dict leaf -> deletes the key.
-    - List leaf -> either deletes the element (remove_from_list=True) or sets it to None (False).
-    - If path is missing or type mismatches occur:
-    - missing_ok=False -> raise KeyError/TypeError/IndexError.
-    - missing_ok=True  -> do nothing and return doc.
-    - prune_empty=True -> after deletion, prune empty dict/list containers up the chain
-    by removing them from their parents. Root is never removed.
-
-    Raises:
-    - JsonPathError for invalid path syntax.
-    - TypeError, KeyError, IndexError depending on mismatches unless missing_ok=True.
-    """
-    tokens = _tokenize_json_path(path)
-    if not tokens:
-        raise JsonPathError("Path resolves to the root; deleting '$' is not supported.")
-
-    # Walk down to parent of the target
-    current = doc
-    parents: List[
-        Tuple[Any, Token]
-    ] = []  # (container, token) pairs leading to `current`
-    try:
-        for idx, tok in enumerate(tokens[:-1]):
-            if isinstance(tok, str):
-                if not isinstance(current, dict):
-                    if missing_ok:
-                        return doc
-                    raise TypeError(
-                        f"Expected dict at step {idx} for key '{tok}', found {type(current).__name__}"
-                    )
-                if tok not in current or current[tok] is None:
-                    if missing_ok:
-                        return doc
-                    raise KeyError(f"Missing key '{tok}' at step {idx}")
-                parents.append((current, tok))
-                current = current[tok]
-            else:
-                # list index
-                if not isinstance(current, list):
-                    if missing_ok:
-                        return doc
-                    raise TypeError(
-                        f"Expected list at step {idx} for index [{tok}], found {type(current).__name__}"
-                    )
-                if tok < 0 or tok >= len(current) or current[tok] is None:
-                    if missing_ok:
-                        return doc
-                    raise IndexError(f"Index {tok} out of range or None at step {idx}")
-                parents.append((current, tok))
-                current = current[tok]
-    except (TypeError, KeyError, IndexError):
-        if missing_ok:
-            return doc
-        raise
-
-    # Perform deletion at the leaf
-    leaf = tokens[-1]
-    try:
-        if isinstance(leaf, str):
-            if not isinstance(current, dict):
-                if missing_ok:
-                    return doc
-                raise TypeError(
-                    f"Expected dict at leaf for key '{leaf}', found {type(current).__name__}"
-                )
-            if leaf not in current:
-                if missing_ok:
-                    return doc
-                raise KeyError(f"Key '{leaf}' not found at leaf")
-            del current[leaf]
-        else:
-            if not isinstance(current, list):
-                if missing_ok:
-                    return doc
-                raise TypeError(
-                    f"Expected list at leaf for index [{leaf}], found {type(current).__name__}"
-                )
-            if leaf < 0 or leaf >= len(current):
-                if missing_ok:
-                    return doc
-                raise IndexError(f"Index {leaf} out of range at leaf")
-            if remove_from_list:
-                del current[leaf]
-            else:
-                current[leaf] = None
-    except (TypeError, KeyError, IndexError):
-        if missing_ok:
-            return doc
-        raise
-
-    # Optionally prune empty containers upward
-    if prune_empty:
-        # target_parent is `current` after deletion; we’ll check it and then walk up
-        # Use a combined list of the already traversed parents + the leaf parent
-        chain: List[Tuple[Any, Optional[Token]]] = parents + [
-            (None, None)
-        ]  # placeholder to align indices
-        # We will use parents to delete child containers when they become empty
-        child = current
-        # Iterate from the immediate parent upwards (reverse)
-        for depth in range(len(parents) - 1, -1, -1):
-            parent, tok_to_child = parents[depth]
-            # If the child is now an empty container, remove it from its parent
-            if _is_empty_container(child):
-                _delete_in_parent(
-                    parent, tok_to_child, remove_from_list=remove_from_list
-                )
-                # After removal, the new child to inspect becomes the parent itself
-                child = parent
-            else:
-                # Stop pruning as soon as we encounter a non-empty container
-                break
-
-    return doc
-
-
 def pop_by_json_path(
     doc: Any,
     path: str,
@@ -398,7 +268,7 @@ def pop_by_json_path(
 
     # Traverse to parent
     current = doc
-    parents: List[Tuple[Any, Token]] = []
+    parents: list[tuple[Any, Token]] = []
     try:
         for idx, tok in enumerate(tokens[:-1]):
             if isinstance(tok, str):
@@ -409,18 +279,22 @@ def pop_by_json_path(
                 ):
                     if missing_ok:
                         return None
-                    raise KeyError(f"Missing key '{tok}' at step {idx}")
+                    raise KeyError(f"Missing key '{tok}' at step {idx}")  # noqa: TRY301
                 parents.append((current, tok))
                 current = current[tok]
             else:
                 if not isinstance(current, list) or tok < 0 or tok >= len(current):
                     if missing_ok:
                         return None
-                    raise IndexError(f"Index {tok} out of range at step {idx}")
+                    raise IndexError(
+                        f"Index {tok} out of range at step {idx}"
+                    )  # noqa: TRY301
                 if current[tok] is None:
                     if missing_ok:
                         return None
-                    raise KeyError(f"None found at index {tok} at step {idx}")
+                    raise KeyError(
+                        f"None found at index {tok} at step {idx}"
+                    )  # noqa: TRY301
                 parents.append((current, tok))
                 current = current[tok]
     except (TypeError, KeyError, IndexError):
@@ -436,26 +310,26 @@ def pop_by_json_path(
             if not isinstance(current, dict):
                 if missing_ok:
                     return None
-                raise TypeError(
+                raise TypeError(  # noqa: TRY301
                     f"Expected dict at leaf for key '{leaf}', found {type(current).__name__}"
                 )
             if leaf not in current:
                 if missing_ok:
                     return None
-                raise KeyError(f"Key '{leaf}' not found at leaf")
+                raise KeyError(f"Key '{leaf}' not found at leaf")  # noqa: TRY301
             removed = current[leaf]
             del current[leaf]
         else:
             if not isinstance(current, list):
                 if missing_ok:
                     return None
-                raise TypeError(
+                raise TypeError(  # noqa: TRY301
                     f"Expected list at leaf for index [{leaf}], found {type(current).__name__}"
                 )
             if leaf < 0 or leaf >= len(current):
                 if missing_ok:
                     return None
-                raise IndexError(f"Index {leaf} out of range at leaf")
+                raise IndexError(f"Index {leaf} out of range at leaf")  # noqa: TRY301
             if remove_from_list:
                 removed = current[leaf]
                 del current[leaf]
@@ -489,9 +363,7 @@ def patch(
     output = copy.deepcopy(base)
     for op in operations:
         if op.op == "deleted":
-            delete_by_json_path(
-                output, op.path, prune_empty=True, remove_from_list=True
-            )
+            pop_by_json_path(output, op.path, prune_empty=True, remove_from_list=True)
             continue
         set_by_json_path(
             output,

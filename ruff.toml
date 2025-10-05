@@ -43,11 +43,25 @@ ignore = [
 [lint.per-file-ignores]
 "tests/*" = [
     "S101", # assert: asserts are allowed in tests
-#    "PLR2004", # magic-value-comparison: magic values are ok in tests
-#    "PLR0913", # too-many-arguments: tests can use as many arguments (i.e. fixtures) as they like
+    "PLR2004", # magic-value-comparison: magic values are ok in tests
+    "PLR0913", # too-many-arguments: tests can use as many arguments (i.e. fixtures) as they like
 #    "SLF001", # private-member-access: private methods can be used in tests
 #    "UP031", # printf-string-formatting: Use format specifiers instead of percent format: it is cleaner to use % formatting for GQL queries
 #    "S113", # it is fine to use requests without timeout in tests
+]
+
+"src/diff/patch.py" = [
+    "PLR0915",
+    "PLR0912",
+    "PLR0911",
+    "C901",
+    "PLR0915",
+]
+
+"src/diff/json_path.py" = [
+    "PLR0912",
+    "C901",
+    "PLR0915"
 ]
 
 [lint.pylint]

@@ -9,20 +9,18 @@ repos:
         language: system
         entry: poetry run ruff format
         types: [ python ]
-#        files: .
       - id: ruff-check
         name: ruff-check
         language: system
         entry: poetry run ruff check
         types: [ python ]
-        args: [ --exit-non-zero-on-fix ]
+        args: [ --fix ]
         files: .
       - id: mypy
         name: mypy
         language: system
         entry: poetry run mypy
         types: [ python ]
-#        files: .
       # poetry checks
       - id: poetry-check
         name: poetry-check

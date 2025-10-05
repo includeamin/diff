@@ -14,7 +14,7 @@ def diff(new: dict, old: dict) -> list[Operation]:
     # deleted
     deleted = old_path_map.keys() - new_path_map.keys()
     for item in deleted:
-        ops.append(
+        ops.append(  # noqa: PERF401
             Operation(
                 path=item, op="deleted", old_value=old_path_map[item], new_value=None
             )
@@ -23,7 +23,7 @@ def diff(new: dict, old: dict) -> list[Operation]:
     # added
     added = new_path_map.keys() - old_path_map.keys()
     for item in added:
-        ops.append(
+        ops.append(  # noqa: PERF401
             Operation(
                 path=item, op="added", old_value=None, new_value=new_path_map[item]
             )
@@ -33,7 +33,7 @@ def diff(new: dict, old: dict) -> list[Operation]:
     shared_keys = new_path_map.keys() & old_path_map.keys()
     for item in shared_keys:
         if old_path_map[item] != new_path_map[item]:
-            ops.append(
+            ops.append(  # noqa: PERF401
                 Operation(
                     path=item,
                     op="modified",
