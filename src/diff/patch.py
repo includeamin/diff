@@ -135,9 +135,9 @@ def set_by_json_path(
 
     # We'll walk down, creating as needed.
     current = doc
-    parents: list[tuple[Any, Token]] = (
-        []
-    )  # (container, token used to access) if you later want force-replace
+    parents: list[
+        tuple[Any, Token]
+    ] = []  # (container, token used to access) if you later want force-replace
     for idx, tok in enumerate(tokens):
         last = idx == len(tokens) - 1
         next_tok = None if last else tokens[idx + 1]
@@ -286,15 +286,11 @@ def pop_by_json_path(
                 if not isinstance(current, list) or tok < 0 or tok >= len(current):
                     if missing_ok:
                         return None
-                    raise IndexError(
-                        f"Index {tok} out of range at step {idx}"
-                    )  # noqa: TRY301
+                    raise IndexError(f"Index {tok} out of range at step {idx}")  # noqa: TRY301
                 if current[tok] is None:
                     if missing_ok:
                         return None
-                    raise KeyError(
-                        f"None found at index {tok} at step {idx}"
-                    )  # noqa: TRY301
+                    raise KeyError(f"None found at index {tok} at step {idx}")  # noqa: TRY301
                 parents.append((current, tok))
                 current = current[tok]
     except (TypeError, KeyError, IndexError):

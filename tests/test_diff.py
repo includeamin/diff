@@ -182,9 +182,9 @@ def test_multiple_changes_in_one_structure():
     }
     seen = {o.path: o.op for o in ops if o.path in expect_paths}
     for p, expected_op in expect_paths.items():
-        assert (
-            seen.get(p) == expected_op
-        ), f"Expected {expected_op} at {p}, got {seen.get(p)}"
+        assert seen.get(p) == expected_op, (
+            f"Expected {expected_op} at {p}, got {seen.get(p)}"
+        )
 
     # Roundtrip must work
     assert patch(base=old, operations=ops) == new

@@ -14,7 +14,7 @@ repos:
         language: system
         entry: poetry run ruff check
         types: [ python ]
-        args: [ --fix ]
+        args: [ --exit-non-zero-on-fix ]
         files: .
       - id: mypy
         name: mypy
