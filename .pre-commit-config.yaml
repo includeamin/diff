@@ -1,0 +1,63 @@
+repos:
+  - repo: local
+    # Pre-built hooks for all these "local" checks are available as well. We rather
+    # define our own to ensure their version matches the one in pyproject.toml/poetry.lock
+    hooks:
+      # python code linters
+      - id: ruff-format
+        name: ruff-format
+        language: system
+        entry: poetry run ruff format
+        types: [ python ]
+      - id: ruff-check
+        name: ruff-check
+        language: system
+        entry: poetry run ruff check
+        types: [ python ]
+        args: [ --exit-non-zero-on-fix ]
+        files: .
+      - id: mypy
+        name: mypy
+        language: system
+        entry: poetry run mypy
+        types: [ python ]
+      # poetry checks
+      - id: poetry-check
+        name: poetry-check
+        language: system
+        entry: poetry check
+        files: ^pyproject.toml$
+        pass_filenames: false
+      - id: poetry-check-lock
+        name: poetry-check-lock
+        entry: poetry check
+        language: system
+        pass_filenames: false
+        args: [ "--lock" ]
+        files: |
+          (?x)^(
+              pyproject.toml|
+              poetry.lock
+          )$
+
+  # common checks that aren't supported by the linters we use in this service
+  # i.e. in a project that uses prettier, you don't need the json checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-json
+      - id: check-toml
+      - id: check-xml
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.90.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate  # this step might take a minute the first time it runs
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.2.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [ commit-msg ]

@@ -1,0 +1,87 @@
+# https://docs.astral.sh/ruff/configuration/
+target-version = "py311"
+output-format = "full"
+
+[lint]
+# list of all rules: https://docs.astral.sh/ruff/rules/
+select = ["ALL"]
+ignore = [
+    "ANN", # flake8-annotations: we're fine with what mypy gives us
+    "ARG", # flake8-unused-arguments: this rule yielded too many false-negatives
+    "BLE001", # blind-except: catching `Exception` is fine as long as you don't `pass`
+    "COM812", # missing-trailing-comma: trailing commas are managed by the formatter
+    "D", # pydocstyle: we don't care too much about docstrings
+    "DJ", # flake8-django: we don't use Django
+    "E501", # line-too-long: we're fine with what black gives us
+    "EM", # flake8-errmsg: raw strings in exceptions are fine
+    "F722", # forward-annotation-syntax-error: https://github.com/PyCQA/pyflakes/issues/542
+    "FBT001", # boolean-type-hint-positional-argument: FBT003 is sufficient
+    "FBT002", # boolean-default-value-positional-argument: FBT003 is sufficient
+    "FIX", # flake8-fixmes: we use todos & fixmes for follow-up and long-term issues
+    "ISC001", # single-line-implicit-string-concatenation: https://github.com/astral-sh/ruff/issues/8272
+    "N805", # invalid-first-argument-name-for-method: incompatible with pydantic validations
+    "PTH123", # pathlib-open: It's ok to use open(...) instead of Pathlib(...).open()
+    "RET504", # unnecessary-assign: unnecessary assigns are sometimes helpful for debuggers
+    "RET505", # superfluous-else-return: sometimes the `else` inproves readability
+    "RET506", # superfluous-else-raise: sometimes the `else` inproves readability
+    "RET507", # superfluous-else-continue: sometimes the `else` inproves readability
+    "RET508", # superfluous-else-break: sometimes the `else` inproves readability
+    "SIM108", # if-else-block-instead-of-if-exp: ternary operator isn't always preferred
+    "TD", # flake8-todos: we don't want to formalise todos
+    "TRY002", # raise-vanilla-class: in services, we're fine with raising broad exceptions
+    "TRY003", # raise-vanilla-args: we're ok with long strings in exceptions
+    "TRY004", # type-check-without-type-error: too many false-negatives
+    "TRY300", # try-consider-else: else statements can be harder to read
+    "A002", # builtin-argument-shadowing: the existing graphql contract uses built-in names like `filter` and `input` extensively
+    "N802", # invalid-function-name: the existing graphql contract extensively uses camelcase
+    "N803", # invalid-argument-name: the existing graphql contract extensively uses camelcase
+    "N815", # mixed-case-variable-in-class-scope: the existing graphql contract extensively uses camelcase
+    "FAST002", # currently we have dependency to fastapi 0.78.0 and Annotated is introduced in version 0.95.0,
+    "TID252", #  Prefer absolute imports over relative imports from parent modules: we have to follow that because of the current project strucutre
+]
+
+[lint.per-file-ignores]
+"tests/*" = [
+    "S101", # assert: asserts are allowed in tests
+    "PLR2004", # magic-value-comparison: magic values are ok in tests
+    "PLR0913", # too-many-arguments: tests can use as many arguments (i.e. fixtures) as they like
+#    "SLF001", # private-member-access: private methods can be used in tests
+#    "UP031", # printf-string-formatting: Use format specifiers instead of percent format: it is cleaner to use % formatting for GQL queries
+#    "S113", # it is fine to use requests without timeout in tests
+]
+
+"src/diff/patch.py" = [
+    "PLR0915",
+    "PLR0912",
+    "PLR0911",
+    "C901",
+    "PLR0915",
+]
+
+"src/diff/json_path.py" = [
+    "PLR0912",
+    "C901",
+    "PLR0915"
+]
+
+[lint.pylint]
+max-args = 7
+
+[lint.isort]
+# https://beta.ruff.rs/docs/settings/#isort
+known-first-party = [
+    "shared",
+    "notification",
+]
+known-local-folder = [
+    "src",
+    "tests",
+]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.params.Depends",
+    "fastapi.Query",
+    "fastapi.params.Query",
+]
