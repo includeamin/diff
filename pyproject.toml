@@ -1,0 +1,24 @@
+[project]
+name = "diff"
+version = "0.1.0"
+description = "A library to calculate diff between structured data"
+authors = [
+    {name = "Amin Jamal",email = "includeamin@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">= 3.11"
+
+[tool.poetry]
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.18.2"
+ruff = "^0.13.3"
+black = "^25.9.0"
+pre-commit = "^4.3.0"
+pytest = "^8.4.2"
+pytest-cov = "^7.0.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
