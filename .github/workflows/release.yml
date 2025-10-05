@@ -1,7 +1,9 @@
 name: Tag and Release
 
 on:
-  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - main
 
 jobs:
   tag-and-release:
@@ -11,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for full git history
+          fetch-depth: 0
 
       - name: Set up Git user
         run: |
@@ -27,7 +29,9 @@ jobs:
       - name: Bump version and create new tag
         id: new_tag
         run: |
-          IFS='.' read -r major minor patch <<< "${{ steps.get_tag.outputs.latest_tag#v }}"
+          latest="${{ steps.get_tag.outputs.latest_tag }}"
+          version="${latest#v}"
+          IFS='.' read -r major minor patch <<< "$version"
           new_tag="v$major.$minor.$((patch + 1))"
           git tag "$new_tag"
           git push origin "$new_tag"
