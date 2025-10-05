@@ -3,7 +3,7 @@ import typing
 
 
 @dataclasses.dataclass
-class Operation:
+class Delta:
     op: typing.Literal["deleted", "modified", "added"]
     path: str
     new_value: typing.Any | None

@@ -45,7 +45,7 @@ old = {"name": "David"}
 new = {"name": "Alex"}
 deltas = diff.diff(new=new, old=old)
 
-rebuild_new = diff.patch(base=old, operations=deltas)
+rebuild_new = diff.patch(base=old, deltas=deltas)
 
 assert rebuild_new == old
 ```

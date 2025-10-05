@@ -3,7 +3,7 @@ import typing
 
 import pytest
 
-from diff import Operation, diff, patch
+from diff import Delta, diff, patch
 
 
 def _op_has_field(op_obj, name: str) -> bool:
@@ -23,9 +23,9 @@ def _mk_expected_operation(**kwargs):
     Construct an Operation but only pass fields that are actually supported by its signature.
     Useful if Operation signature has slightly different names in different versions.
     """
-    params = inspect.signature(Operation).parameters
+    params = inspect.signature(Delta).parameters
     allowed = {k: v for k, v in kwargs.items() if k in params}
-    return Operation(**allowed)
+    return Delta(**allowed)
 
 
 # --- Your original tests (kept) -------------------------------------------
@@ -37,15 +37,11 @@ def _mk_expected_operation(**kwargs):
         (
             {"name": "Amin"},
             {"name": "Amin2"},
-            [
-                Operation(
-                    op="modified", path="$.name", old_value="Amin", new_value="Amin2"
-                )
-            ],
+            [Delta(op="modified", path="$.name", old_value="Amin", new_value="Amin2")],
         )
     ],
 )
-def test_diff(old: dict, new: dict, expected_delta: list[Operation]):
+def test_diff(old: dict, new: dict, expected_delta: list[Delta]):
     result = diff(new=new, old=old)
     assert expected_delta == result
 
@@ -60,7 +56,7 @@ def test_patch_complex():
         },
     }
     deltas = diff(new=new, old=old)
-    patch_result = patch(base=old, operations=deltas)
+    patch_result = patch(base=old, deltas=deltas)
     assert patch_result == new
 
 
@@ -85,7 +81,7 @@ def test_added_key_expected_op_and_patch_roundtrip():
     )
 
     # Roundtrip
-    assert patch(base=old, operations=ops) == new
+    assert patch(base=old, deltas=ops) == new
 
 
 def test_deleted_key_expected_op_and_patch_roundtrip():
@@ -102,7 +98,7 @@ def test_deleted_key_expected_op_and_patch_roundtrip():
     )
 
     # Roundtrip
-    assert patch(base=old, operations=ops) == new
+    assert patch(base=old, deltas=ops) == new
 
 
 @pytest.mark.parametrize(
@@ -132,12 +128,12 @@ def test_deleted_key_expected_op_and_patch_roundtrip():
 def test_roundtrip_both_directions(old, new):
     # Convert old -> new
     ops_forward = diff(new=new, old=old)
-    result_forward = patch(base=old, operations=ops_forward)
+    result_forward = patch(base=old, deltas=ops_forward)
     assert result_forward == new
 
     # Convert new -> old
     ops_backward = diff(new=old, old=new)
-    result_backward = patch(base=new, operations=ops_backward)
+    result_backward = patch(base=new, deltas=ops_backward)
     assert result_backward == old
 
 
@@ -149,14 +145,14 @@ def test_none_handling_as_value_vs_absence():
     # Should be a modified (or possibly added if implementation replaces container),
     # but at least path is present and patch succeeds.
     assert any(o.path == "$.x" for o in ops)
-    assert patch(base=old, operations=ops) == new
+    assert patch(base=old, deltas=ops) == new
 
     # Removing a key entirely should be a 'deleted'
     old2 = {"y": None}
     new2: dict[str, typing.Any] = {}
     ops2 = diff(new=new2, old=old2)
     assert any(o.op == "deleted" and o.path == "$.y" for o in ops2)
-    assert patch(base=old2, operations=ops2) == new2
+    assert patch(base=old2, deltas=ops2) == new2
 
 
 def test_multiple_changes_in_one_structure():
@@ -187,7 +183,7 @@ def test_multiple_changes_in_one_structure():
         )
 
     # Roundtrip must work
-    assert patch(base=old, operations=ops) == new
+    assert patch(base=old, deltas=ops) == new
 
 
 def test_diff_then_patch_is_pure_function_of_inputs():
@@ -202,8 +198,8 @@ def test_diff_then_patch_is_pure_function_of_inputs():
     ops2 = diff(new=new, old=old)
     # Equality of ops may depend on internal ordering; at least lengths match and patch result is same
     assert len(ops1) == len(ops2)
-    assert patch(base=old, operations=ops1) == new
-    assert patch(base=old, operations=ops2) == new
+    assert patch(base=old, deltas=ops1) == new
+    assert patch(base=old, deltas=ops2) == new
 
 
 def test_reverse_diff_converts_back_and_forth():
@@ -216,5 +212,5 @@ def test_reverse_diff_converts_back_and_forth():
     forward = diff(new=new, old=old)  # old -> new
     backward = diff(new=old, old=new)  # new -> old
 
-    assert patch(base=old, operations=forward) == new
-    assert patch(base=new, operations=backward) == old
+    assert patch(base=old, deltas=forward) == new
+    assert patch(base=new, deltas=backward) == old

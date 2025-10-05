@@ -2,7 +2,7 @@ import copy
 import typing
 from typing import Any
 
-from diff.diff import Operation
+from diff.diff import Delta
 
 Token = str | int  # str for dict keys, int for list indices
 
@@ -353,11 +353,9 @@ def pop_by_json_path(
     return removed
 
 
-def patch(
-    base: dict[str, typing.Any], operations: list[Operation]
-) -> dict[str, typing.Any]:
+def patch(base: dict[str, typing.Any], deltas: list[Delta]) -> dict[str, typing.Any]:
     output = copy.deepcopy(base)
-    for op in operations:
+    for op in deltas:
         if op.op == "deleted":
             pop_by_json_path(output, op.path, prune_empty=True, remove_from_list=True)
             continue
