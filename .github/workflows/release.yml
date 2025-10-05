@@ -1,9 +1,7 @@
 name: Tag and Release
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   tag-and-release:
@@ -20,30 +18,26 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
 
-      - name: Install git-cliff
-        run: |
-          curl -sSL https://github.com/orhun/git-cliff/releases/latest/download/git-cliff-linux-x86_64.tar.gz | tar -xz
-          sudo mv git-cliff /usr/local/bin/
-
       - name: Get latest tag
         id: get_tag
         run: |
-          latest_tag=$(git describe --tags --abbrev=0)
+          latest_tag=$(git describe --tags --abbrev=0 || echo "v0.0.0")
           echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
 
       - name: Bump version and create new tag
         id: new_tag
         run: |
-          # Example: bump patch version (customize as needed)
-          IFS='.' read -r major minor patch <<< "${{ steps.get_tag.outputs.latest_tag }}"
+          IFS='.' read -r major minor patch <<< "${{ steps.get_tag.outputs.latest_tag#v }}"
           new_tag="v$major.$minor.$((patch + 1))"
           git tag "$new_tag"
           git push origin "$new_tag"
           echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
 
-      - name: Generate changelog
-        run: |
-          git-cliff -c cliff.toml -t ${{ steps.new_tag.outputs.new_tag }} -o CHANGELOG.md
+      - name: Generate changelog with git-cliff
+        uses: orhun/git-cliff-action@v2
+        with:
+          config: cliff.toml
+          args: -t ${{ steps.new_tag.outputs.new_tag }} -o CHANGELOG.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
