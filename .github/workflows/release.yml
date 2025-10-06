@@ -1,53 +1,59 @@
-name: Tag and Release
-
 on:
   push:
     branches:
       - main
 
 jobs:
-  tag-and-release:
+  release-on-push:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - id: release
+        uses: rymndhng/release-on-push-action@master
         with:
-          fetch-depth: 0
+          bump_version_scheme: minor
+          tag_prefix: v
 
-      - name: Set up Git user
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-
-      - name: Get latest tag
-        id: get_tag
-        run: |
-          latest_tag=$(git describe --tags --abbrev=0 || echo "v0.0.0")
-          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
-
-      - name: Bump version and create new tag
-        id: new_tag
-        run: |
-          latest="${{ steps.get_tag.outputs.latest_tag }}"
-          version="${latest#v}"
-          IFS='.' read -r major minor patch <<< "$version"
-          new_tag="v$major.$minor.$((patch + 1))"
-          git tag "$new_tag"
-          git push origin "$new_tag"
-          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
-
-      - name: Generate changelog with git-cliff
-        uses: orhun/git-cliff-action@v2
+      # Step 2: Generate Changelog using git-cliff-action
+      - name: Generate Changelog with GitCliff
+        uses: orhun/git-cliff-action@v1
         with:
-          config: cliff.toml
-          args: -t ${{ steps.new_tag.outputs.new_tag }} -o CHANGELOG.md
+          args: "-o CHANGELOG.md"
+          config: 'cliff.toml'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
-      - name: Create GitHub Release
+      # Step 4: Check Output Parameters (optional, for debugging)
+      - name: Check Output Parameters
+        run: |
+          echo "Got tag name ${{ steps.release.outputs.tag_name }}"
+          echo "Got release version ${{ steps.release.outputs.version }}"
+          echo "Upload release artifacts to ${{ steps.release.outputs.upload_url }}"
+
+      # Step 5: Set release body with changelog
+      - name: Set release body with changelog
+        id: release_body
+        run: |
+            ls -l  # List files to check if CHANGELOG.md exists
+            if [ -f CHANGELOG.md ]; then
+                echo "CHANGELOG.md exists"
+                echo "body<<EOF" >> $GITHUB_ENV
+                cat CHANGELOG.md >> $GITHUB_ENV
+                echo "EOF" >> $GITHUB_ENV
+            else
+                echo "CHANGELOG.md does not exist"
+                echo "body=No changelog available" >> $GITHUB_ENV
+            fi
+
+      # Step 6: Create GitHub Release with Changelog in Release Notes
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.new_tag.outputs.new_tag }}
-          name: Release ${{ steps.new_tag.outputs.new_tag }}
-          body_path: CHANGELOG.md
+          tag_name: ${{ steps.release.outputs.tag_name }}
+          files: ./artifacts/*
+          body: ${{ steps.release_body.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
