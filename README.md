@@ -49,3 +49,9 @@ rebuild_new = diff.patch(base=old, deltas=deltas)
 
 assert rebuild_new == old
 ```
+
+## Install
+
+```bash
+poetry add git+https://github.com/includeamin/diff.git#tag
+```
