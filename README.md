@@ -4,8 +4,8 @@ Diff is a library to calculate deltas between structured data.
 
 ## Features
 
-- Calculate detlas
-- Rebuild via deltas
+- Calculate detla(s)
+- Rebuild state from delta(s)
 
 ## Supported Formats
 
