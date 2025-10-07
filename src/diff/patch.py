@@ -356,9 +356,10 @@ def pop_by_json_path(
 def patch(base: dict[str, typing.Any], deltas: list[Delta]) -> dict[str, typing.Any]:
     output = copy.deepcopy(base)
     for op in deltas:
-        if op.op == "deleted":
+        if op.operation == "deleted":
             pop_by_json_path(output, op.path, prune_empty=True, remove_from_list=True)
             continue
+        # we use set for both modify and add actions
         set_by_json_path(
             output,
             op.path,
