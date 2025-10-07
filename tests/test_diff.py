@@ -28,9 +28,6 @@ def _mk_expected_operation(**kwargs):
     return Delta(**allowed)
 
 
-# --- Your original tests (kept) -------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("old", "new", "expected_delta"),
     [
@@ -65,9 +62,6 @@ def test_patch_complex():
     deltas = diff(new=new, old=old)
     patch_result = patch(base=old, deltas=deltas)
     assert patch_result == new
-
-
-# --- New tests -------------------------------------------------------------
 
 
 def test_diff_no_changes_is_empty():
