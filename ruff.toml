@@ -69,10 +69,7 @@ max-args = 7
 
 [lint.isort]
 # https://beta.ruff.rs/docs/settings/#isort
-known-first-party = [
-    "shared",
-    "notification",
-]
+known-first-party = []
 known-local-folder = [
     "src",
     "tests",
