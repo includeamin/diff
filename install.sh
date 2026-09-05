@@ -1,305 +1,122 @@
 #!/usr/bin/env bash
-#
-# Installer and updater for the `drift` command.
-#
-# The project has no runtime dependencies, so drift ships as a zipapp (PEP 441):
-# a single self-contained executable that starts as fast as a plain script.
-#
-# Remote install (no clone required):
-#   curl -fsSL https://raw.githubusercontent.com/includeamin/drift/main/install.sh | bash
-#
-# Usage:
-#   bash install.sh                  Install or reinstall the latest release
-#   bash install.sh --check          Report whether a newer release exists
-#   bash install.sh --update         Install only if a newer release exists
-#   bash install.sh --ref v0.5.0     Install a specific tag, branch or commit
-#   bash install.sh --local          Build from the working tree instead of GitHub
-#   bash install.sh --uninstall      Remove drift and its cached checkout
-#
-# Environment:
-#   PREFIX    Install prefix (default: ~/.local)
-#   BIN_DIR   Executable directory (default: $PREFIX/bin)
-#   REPO_URL  Override the source repository
-#
 set -euo pipefail
 
-readonly PROGRAM="drift"
-readonly REPO_SLUG="includeamin/drift"
-readonly MIN_MAJOR=3
-readonly MIN_MINOR=11
-
-REPO_URL="${REPO_URL:-https://github.com/${REPO_SLUG}.git}"
+readonly REPOSITORY="includeamin/drift"
 PREFIX="${PREFIX:-$HOME/.local}"
 BIN_DIR="${BIN_DIR:-$PREFIX/bin}"
-DATA_DIR="${DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/$PROGRAM}"
+VERSION="${VERSION:-}"
 
-TARGET="$BIN_DIR/$PROGRAM"
-MANIFEST="$DATA_DIR/manifest"
-CHECKOUT="$DATA_DIR/checkout"
+usage() {
+    cat <<'EOF'
+Install drift from a published GitHub release.
 
-MODE="install"
-REQUESTED_REF=""
-USE_LOCAL=0
-SOURCE_ROOT=""
-RESOLVED_REF=""
+Usage: install.sh [--version VERSION]
 
-info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
-ok() { printf '\033[32m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
-die() {
-    printf '\033[31merror:\033[0m %s\n' "$*" >&2
+Environment:
+  VERSION  Release tag to install, for example v0.13.1
+  PREFIX   Installation prefix (default: ~/.local)
+  BIN_DIR  Executable directory (default: $PREFIX/bin)
+EOF
+}
+
+while (($# > 0)); do
+    case "$1" in
+        --version)
+            (($# >= 2)) || { printf 'error: --version requires a value\n' >&2; exit 2; }
+            VERSION="$2"
+            shift 2
+            ;;
+        --version=*)
+            VERSION="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'error: unknown option: %s\n' "$1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+command -v curl >/dev/null 2>&1 || {
+    printf 'error: curl is required\n' >&2
+    exit 1
+}
+command -v install >/dev/null 2>&1 || {
+    printf 'error: install is required\n' >&2
     exit 1
 }
 
-usage() {
-    sed -n '3,23p' "${BASH_SOURCE[0]}" | sed 's/^#\{1\} \{0,1\}//'
-    exit 0
-}
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --check) MODE="check" ;;
-        --update) MODE="update" ;;
-        --uninstall) MODE="uninstall" ;;
-        --local) USE_LOCAL=1 ;;
-        --ref)
-            [[ $# -ge 2 ]] || die "--ref requires a value"
-            REQUESTED_REF="$2"
-            shift
-            ;;
-        --ref=*) REQUESTED_REF="${1#*=}" ;;
-        -h | --help) usage ;;
-        *) die "Unknown option: $1 (try --help)" ;;
-    esac
-    shift
-done
-
-require() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but was not found on PATH."; }
-
-find_python() {
-    local candidate
-    for candidate in python3.14 python3.13 python3.12 python3.11 python3 python; do
-        if command -v "$candidate" >/dev/null 2>&1 &&
-            "$candidate" -c "import sys; sys.exit(0 if sys.version_info[:2] >= ($MIN_MAJOR, $MIN_MINOR) else 1)" 2>/dev/null; then
-            command -v "$candidate"
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Resolved without the GitHub API so there is no rate limit and no jq dependency.
-latest_tag() {
-    git ls-remote --tags --refs --sort=-v:refname "$REPO_URL" 'v*' 2>/dev/null |
-        head -n1 | sed 's#.*refs/tags/##'
-}
-
-installed_version() {
-    [[ -f "$MANIFEST" ]] || return 1
-    local value
-    value="$(sed -n 's/^version=//p' "$MANIFEST" | head -n1)"
-    [[ -n "$value" ]] || return 1
-    printf '%s\n' "$value"
-}
-
-# Returns 0 when $1 is strictly newer than $2.
-version_gt() {
-    local a="${1#v}" b="${2#v}"
-    [[ "$a" != "$b" ]] && [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)" == "$a" ]]
-}
-
-uninstall() {
-    local removed=0
-    if [[ -e "$TARGET" ]]; then
-        rm -f "$TARGET"
-        ok "Removed $TARGET"
-        removed=1
-    fi
-    if [[ -d "$DATA_DIR" ]]; then
-        rm -rf "$DATA_DIR"
-        ok "Removed $DATA_DIR"
-        removed=1
-    fi
-    [[ $removed -eq 1 ]] || info "$PROGRAM is not installed."
-    exit 0
-}
-
-# Exits 0 when up to date, 10 when an update is available.
-check_for_update() {
-    require git
-    local current latest
-    current="$(installed_version || true)"
-    latest="$(latest_tag)"
-
-    [[ -n "$latest" ]] || die "Could not determine the latest release from $REPO_URL"
-
-    if [[ -z "$current" ]]; then
-        info "$PROGRAM is not installed. Latest release is $latest."
-        return 10
-    fi
-
-    info "Installed: $current"
-    info "Latest:    $latest"
-
-    if version_gt "$latest" "$current"; then
-        ok "An update is available: $current -> $latest"
-        return 10
-    fi
-
-    ok "$PROGRAM is up to date."
-    return 0
-}
-
-# Populates SOURCE_ROOT with a directory containing the src/diff package.
-fetch_source() {
-    if [[ $USE_LOCAL -eq 1 ]]; then
-        local here
-        here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        [[ -d "$here/src/diff" ]] || die "--local requires running from inside the repository."
-        SOURCE_ROOT="$here"
-        RESOLVED_REF="local"
-        return
-    fi
-
-    require git
-    local ref="$REQUESTED_REF"
-    if [[ -z "$ref" ]]; then
-        ref="$(latest_tag)"
-        [[ -n "$ref" ]] || die "No release tags found in $REPO_URL"
-    fi
-
-    info "Fetching $REPO_SLUG at $ref..."
-    rm -rf "$CHECKOUT"
-    mkdir -p "$(dirname "$CHECKOUT")"
-
-    if ! git clone --quiet --depth 1 --branch "$ref" "$REPO_URL" "$CHECKOUT" 2>/dev/null; then
-        # --branch only accepts tags and branches, so fall back for raw commits.
-        git clone --quiet "$REPO_URL" "$CHECKOUT" || die "Failed to clone $REPO_URL"
-        git -C "$CHECKOUT" checkout --quiet "$ref" || die "Unknown ref: $ref"
-    fi
-
-    [[ -d "$CHECKOUT/src/diff" ]] || die "The checkout at $ref does not contain src/diff."
-    SOURCE_ROOT="$CHECKOUT"
-    RESOLVED_REF="$ref"
-}
-
-DEPS=(pyyaml tomli-w)
-
-# Installs DEPS into $2 using $1's pip, bootstrapping a throwaway venv when
-# the interpreter has no pip of its own (e.g. externally-managed distros).
-vendor_deps() {
-    local python="$1" target="$2" bootstrap
-    if "$python" -m pip --version >/dev/null 2>&1; then
-        "$python" -m pip install --quiet --no-deps --target "$target" "${DEPS[@]}" ||
-            die "Failed to vendor runtime dependencies (${DEPS[*]}) into the build."
-        return
-    fi
-
-    bootstrap="$(mktemp -d)"
-    "$python" -m venv "$bootstrap" >/dev/null 2>&1 ||
-        { rm -rf "$bootstrap"; die "Neither pip nor venv is available for $python; install pip and retry."; }
-    local status=0
-    "$bootstrap/bin/pip" install --quiet --no-deps --target "$target" "${DEPS[@]}" || status=$?
-    rm -rf "$bootstrap"
-    [[ $status -eq 0 ]] || die "Failed to vendor runtime dependencies (${DEPS[*]}) into the build."
-}
-
-build_and_install() {
-    local python package_version staging recorded
-    python="$(find_python)" ||
-        die "Python ${MIN_MAJOR}.${MIN_MINOR}+ is required but was not found on PATH."
-    info "Using interpreter: $python ($("$python" -c 'import platform; print(platform.python_version())'))"
-
-    mkdir -p "$BIN_DIR" "$DATA_DIR"
-
-    # Stage only the runtime package so caches and tests stay out of the archive.
-    staging="$(mktemp -d)"
-    trap 'rm -rf "$staging"' RETURN
-
-    cp -R "$SOURCE_ROOT/src/diff" "$staging/diff"
-    find "$staging" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
-
-    vendor_deps "$python" "$staging"
-    find "$staging" -type d -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
-    rm -rf "$staging"/*.dist-info
-
-    info "Building zipapp..."
-    "$python" -m zipapp "$staging" \
-        --main "diff.cli:run" \
-        --python "/usr/bin/env $(basename "$python")" \
-        --compress \
-        --output "$staging/$PROGRAM"
-    chmod +x "$staging/$PROGRAM"
-
-    # Verify before touching the installed copy, so a bad build never replaces
-    # a working one.
-    if ! "$staging/$PROGRAM" --version >/dev/null 2>&1; then
-        die "The build at ${RESOLVED_REF} is not a working $PROGRAM executable."
-    fi
-
-    mv -f "$staging/$PROGRAM" "$TARGET"
-    chmod +x "$TARGET"
-
-    package_version="$("$python" -c "
-import pathlib, re, sys
-text = pathlib.Path(sys.argv[1], 'diff', '__init__.py').read_text(encoding='utf-8')
-match = re.search(r'__version__\s*=\s*\"([^\"]+)\"', text)
-print(match.group(1) if match else 'unknown')
-" "$SOURCE_ROOT/src")"
-
-    recorded="$RESOLVED_REF"
-    [[ "$recorded" == "local" ]] && recorded="v${package_version}+local"
-
-    {
-        echo "version=$recorded"
-        echo "package_version=$package_version"
-        echo "installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        echo "path=$TARGET"
-        echo "repo=$REPO_URL"
-    } > "$MANIFEST"
-
-    ok "Installed $PROGRAM $recorded -> $TARGET"
-}
-
-warn_if_not_on_path() {
-    case ":${PATH}:" in
-        *":$BIN_DIR:"*) ;;
-        *)
-            warn "$BIN_DIR is not on your PATH. Add it with:"
-            printf '\n  bash/zsh:  echo '\''export PATH="%s:$PATH"'\'' >> ~/.bashrc\n' "$BIN_DIR"
-            printf '  fish:      fish_add_path %s\n\n' "$BIN_DIR"
-            ;;
-    esac
-}
-
-case "$MODE" in
-    uninstall)
-        uninstall
-        ;;
-    check)
-        set +e
-        check_for_update
-        status=$?
-        set -e
-        [[ $status -eq 10 ]] && exit 10
-        exit $status
-        ;;
-    update)
-        if [[ $USE_LOCAL -eq 0 && -z "$REQUESTED_REF" ]]; then
-            set +e
-            check_for_update
-            status=$?
-            set -e
-            [[ $status -eq 0 ]] && exit 0
-            [[ $status -eq 10 ]] || exit $status
-        fi
-        fetch_source
-        build_and_install
-        ;;
-    install)
-        fetch_source
-        build_and_install
-        warn_if_not_on_path
-        info "Try it:  $PROGRAM --help"
+case "$(uname -s)" in
+    Linux) platform="linux" ;;
+    Darwin) platform="macos" ;;
+    MINGW*|MSYS*|CYGWIN*) platform="windows" ;;
+    *)
+        printf 'error: unsupported operating system: %s\n' "$(uname -s)" >&2
+        exit 1
         ;;
 esac
+
+case "$(uname -m)" in
+    x86_64|amd64) architecture="x86_64" ;;
+    arm64|aarch64)
+        architecture="aarch64"
+        ;;
+    *)
+        printf 'error: unsupported architecture: %s\n' "$(uname -m)" >&2
+        exit 1
+        ;;
+esac
+
+if [[ "$platform" == "linux" && "$architecture" != "x86_64" ]]; then
+    printf 'error: no published Linux %s binary\n' "$architecture" >&2
+    exit 1
+fi
+if [[ "$platform" == "windows" && "$architecture" != "x86_64" ]]; then
+    printf 'error: no published Windows %s binary\n' "$architecture" >&2
+    exit 1
+fi
+
+if [[ "$platform" == "windows" ]]; then
+    asset="drift-windows-${architecture}.exe"
+else
+    asset="drift-${platform}-${architecture}"
+fi
+
+if [[ -z "$VERSION" ]]; then
+    VERSION="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$REPOSITORY/releases/latest")"
+    VERSION="${VERSION##*/}"
+fi
+[[ "$VERSION" == v* ]] || VERSION="v$VERSION"
+
+base_url="https://github.com/$REPOSITORY/releases/download/$VERSION"
+temporary_directory="$(mktemp -d)"
+trap 'rm -rf "$temporary_directory"' EXIT
+
+printf 'Downloading drift %s for %s/%s...\n' "$VERSION" "$platform" "$architecture"
+curl -fsSL --retry 3 "$base_url/$asset" -o "$temporary_directory/drift"
+curl -fsSL --retry 3 "$base_url/$asset.sha256" -o "$temporary_directory/drift.sha256"
+
+expected="$(awk '{print $1}' "$temporary_directory/drift.sha256")"
+if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$temporary_directory/drift" | awk '{print $1}')"
+else
+    actual="$(shasum -a 256 "$temporary_directory/drift" | awk '{print $1}')"
+fi
+[[ "$expected" == "$actual" ]] || {
+    printf 'error: checksum verification failed\n' >&2
+    exit 1
+}
+
+mkdir -p "$BIN_DIR"
+if [[ "$platform" == "windows" ]]; then
+    install_name="drift.exe"
+else
+    install_name="drift"
+fi
+install -m 755 "$temporary_directory/drift" "$BIN_DIR/$install_name"
+printf 'installed drift %s to %s/%s\n' "$VERSION" "$BIN_DIR" "$install_name"

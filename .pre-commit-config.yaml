@@ -1,44 +1,21 @@
 repos:
   - repo: local
-    # Pre-built hooks for all these "local" checks are available as well. We rather
-    # define our own to ensure their version matches the one in pyproject.toml/poetry.lock
     hooks:
-      # python code linters
-      - id: ruff-format
-        name: ruff-format
+      - id: cargo-fmt
+        name: cargo-fmt
         language: system
-        entry: poetry run ruff format
-        types: [ python ]
-      - id: ruff-check
-        name: ruff-check
-        language: system
-        entry: poetry run ruff check
-        types: [ python ]
-        args: [ --exit-non-zero-on-fix ]
-        files: .
-      - id: mypy
-        name: mypy
-        language: system
-        entry: poetry run mypy
-        types: [ python ]
-      # poetry checks
-      - id: poetry-check
-        name: poetry-check
-        language: system
-        entry: poetry check
-        files: ^pyproject.toml$
+        entry: cargo fmt --all -- --check
         pass_filenames: false
-      - id: poetry-check-lock
-        name: poetry-check-lock
-        entry: poetry check
+      - id: cargo-clippy
+        name: cargo-clippy
         language: system
+        entry: cargo clippy --all-targets --all-features -- -D warnings
         pass_filenames: false
-        args: [ "--lock" ]
-        files: |
-          (?x)^(
-              pyproject.toml|
-              poetry.lock
-          )$
+      - id: cargo-test
+        name: cargo-test
+        language: system
+        entry: cargo test --all-targets
+        pass_filenames: false
 
   # common checks that aren't supported by the linters we use in this service
   # i.e. in a project that uses prettier, you don't need the json checks

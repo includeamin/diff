@@ -1,217 +1,98 @@
-name: "Release"
+name: Release
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
-      bump:
-        description: "Version bump to apply"
+      tag:
+        description: "Existing tag to build and publish"
         required: true
-        default: minor
-        type: choice
-        options: [major, minor, patch]
-      dry_run:
-        description: "Rehearse the release without pushing or publishing"
-        required: false
-        default: false
-        type: boolean
-
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, 'chore(release):')"
-
-    # Pull requests always rehearse: every step runs except the ones that
-    # push commits, push tags or publish a release.
-    env:
-      DRY_RUN: ${{ github.event_name == 'pull_request' || inputs.dry_run == true }}
-
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: drift
+            asset: drift-linux-x86_64
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: drift.exe
+            asset: drift-windows-x86_64.exe
+          - name: macOS Intel
+            os: macos-latest
+            target: x86_64-apple-darwin
+            binary: drift
+            asset: drift-macos-x86_64
+          - name: macOS Apple Silicon
+            os: macos-latest
+            target: aarch64-apple-darwin
+            binary: drift
+            asset: drift-macos-aarch64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-          # The built-in token is used deliberately: the job-level `contents:
-          # write` permission covers pushing the bump commit, the tag and the
-          # release, and it cannot expire the way a PAT can.
-          token: ${{ github.token }}
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: abatilo/actions-poetry@v3
-        with:
-          poetry-version: latest
-
-      # Single source of truth: the next tag drives both pyproject.toml and
-      # src/diff/__init__.py, so the three can never drift apart.
-      - name: Resolve next version
-        id: version
+          targets: ${{ matrix.target }}
+      - name: Build release binary
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Prepare release asset
+        shell: bash
         run: |
           set -euo pipefail
-          latest="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
-          latest="${latest:-v0.0.0}"
-          IFS='.' read -r major minor patch <<< "${latest#v}"
-
-          bump="${{ github.event.inputs.bump || 'minor' }}"
-          case "$bump" in
-            major) major=$((major + 1)); minor=0; patch=0 ;;
-            minor) minor=$((minor + 1)); patch=0 ;;
-            patch) patch=$((patch + 1)) ;;
-          esac
-
-          version="${major}.${minor}.${patch}"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$version (previous: $latest)"
-
-      - name: Apply the version to pyproject.toml and the package
-        run: |
-          set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          poetry version "$version"
-          python - "$version" <<'PY'
-          import pathlib, re, sys
-
-          version = sys.argv[1]
-          path = pathlib.Path("src/diff/__init__.py")
-          updated, count = re.subn(
-              r'^__version__\s*=\s*"[^"]*"',
-              f'__version__ = "{version}"',
-              path.read_text(encoding="utf-8"),
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if count != 1:
-              raise SystemExit("Could not find __version__ in src/diff/__init__.py")
-          path.write_text(updated, encoding="utf-8")
-          PY
-
-      - name: Verify the versions agree
-        run: |
-          set -euo pipefail
-          expected="${{ steps.version.outputs.version }}"
-          pyproject="$(poetry version --short)"
-          package="$(python -c "import re, pathlib; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('src/diff/__init__.py').read_text()).group(1))")"
-          echo "tag=$expected pyproject=$pyproject package=$package"
-          test "$expected" = "$pyproject"
-          test "$expected" = "$package"
-
-      # orhun/git-cliff-action is a Docker action whose image is based on Debian
-      # buster. Buster is EOL and no longer served by deb.debian.org, so the
-      # image build fails on `apt-get update`. Use the release binary instead.
-      - name: Install git-cliff
-        env:
-          GIT_CLIFF_VERSION: "2.4.0"
-        run: |
-          set -euo pipefail
-          url="https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          curl -fsSL --retry 3 "$url" -o /tmp/git-cliff.tar.gz
-          tar -xzf /tmp/git-cliff.tar.gz -C /tmp
-          sudo install "/tmp/git-cliff-${GIT_CLIFF_VERSION}/git-cliff" /usr/local/bin/git-cliff
-          git-cliff --version
-
-      - name: Generate the changelog
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git-cliff --tag "${{ steps.version.outputs.tag }}" --output CHANGELOG.md
-          # Release notes cover only this release, unlike the cumulative file.
-          git-cliff --tag "${{ steps.version.outputs.tag }}" --unreleased --strip all \
-            --output RELEASE_NOTES.md
-
-      - name: Build the drift zipapp
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts staging
-          cp -R src/diff staging/diff
-          pip install --quiet --no-deps --target staging pyyaml tomli-w
-          find staging -type d -name '__pycache__' -prune -exec rm -rf {} + || true
-          rm -rf staging/*.dist-info
-          python -m zipapp staging \
-            --main "diff.cli:run" \
-            --python "/usr/bin/env python3" \
-            --compress \
-            --output artifacts/drift
-          chmod +x artifacts/drift
-          test "$(artifacts/drift --version)" = "drift ${{ steps.version.outputs.version }}"
-
-      - name: Build the Python distributions
-        run: |
-          poetry build
-          cp dist/* artifacts/
-
-      - name: Commit and tag the release
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml src/diff/__init__.py CHANGELOG.md
-          git commit -m "chore(release): ${{ steps.version.outputs.tag }} [skip ci]"
-          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-
-          if [[ "$DRY_RUN" == "true" ]]; then
-            echo "Dry run: the commit and tag were created locally but not pushed."
-            git --no-pager show --stat --oneline HEAD
-            exit 0
+          mkdir -p artifacts
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "artifacts/${{ matrix.asset }}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            sha256sum "artifacts/${{ matrix.asset }}" > "artifacts/${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "artifacts/${{ matrix.asset }}" > "artifacts/${{ matrix.asset }}.sha256"
           fi
-
-          git push origin HEAD:main
-          git push origin "${{ steps.version.outputs.tag }}"
-
-      - name: Upload the artifacts for inspection
-        if: env.DRY_RUN == 'true'
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run-${{ steps.version.outputs.tag }}
-          path: |
-            artifacts/*
-            CHANGELOG.md
-            RELEASE_NOTES.md
+          name: ${{ matrix.asset }}
+          path: artifacts/*
           if-no-files-found: error
 
-      - name: Summarise the dry run
-        if: env.DRY_RUN == 'true'
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          EVENT_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          {
-            echo "## Release dry run"
-            echo
-            echo "Nothing was pushed or published. This release **would** have produced:"
-            echo
-            echo "| Field | Value |"
-            echo "| --- | --- |"
-            echo "| Tag | \`${{ steps.version.outputs.tag }}\` |"
-            echo "| pyproject.toml | \`$(poetry version --short)\` |"
-            echo "| \`diff.__version__\` | \`$(python -c "import re, pathlib; print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', pathlib.Path('src/diff/__init__.py').read_text()).group(1))")\` |"
-            echo
-            echo "### Artifacts"
-            echo '```'
-            ls -lh artifacts/
-            echo '```'
-            echo "### Release notes preview"
-            cat RELEASE_NOTES.md
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Create the GitHub release
-        if: env.DRY_RUN != 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          body_path: RELEASE_NOTES.md
-          files: artifacts/*
-          token: ${{ github.token }}
+          tag="${EVENT_TAG}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${INPUT_TAG}"
+          fi
+          [[ "$tag" == v* ]] || { echo "Tag must start with v: $tag" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.release.outputs.tag }}" artifacts/* \
+            --title "${{ steps.release.outputs.tag }}" \
+            --generate-notes
